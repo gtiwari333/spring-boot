@@ -12,6 +12,7 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
@@ -22,6 +23,9 @@ import java.util.jar.Manifest;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 
+import javax.tools.ToolProvider;
+
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -168,6 +172,165 @@ class JarUrlClassLoaderTests {
 			assertThat(loader.getResource("3.dat")).hasToString(url + "3.dat");
 			assertThat(loader.loadClass("demo.Application")).hasToString("class demo.Application");
 		}
+	}
+
+	@Test
+	void loadClassesFromMultipleNestedJars() throws Exception {
+		File jarFile = createJarWithNestedJars(createNestedJar(null, "demo.Application"),
+				createNestedJar(null, "app.Second"));
+		URL firstUrl = JarUrl.create(jarFile, "first.jar");
+		URL secondUrl = JarUrl.create(jarFile, "second.jar");
+		try (JarUrlClassLoader loader = new TestJarUrlClassLoader(firstUrl, secondUrl)) {
+			assertThat(loader.loadClass("demo.Application")).isNotNull();
+			assertThat(loader.loadClass("app.Second")).isNotNull();
+		}
+	}
+
+	@Test
+	void loadClassFromLaterNestedJarWhenEarlierJarContainsThePackage() throws Exception {
+		File jarFile = createJarWithNestedJars(createNestedJar("1.0", "demo.Second"),
+				createNestedJar("2.0", "demo.Application", "demo.Second"));
+		URL firstUrl = JarUrl.create(jarFile, "first.jar");
+		URL secondUrl = JarUrl.create(jarFile, "second.jar");
+		try (JarUrlClassLoader loader = new TestJarUrlClassLoader(firstUrl, secondUrl)) {
+			Class<?> application = loader.loadClass("demo.Application");
+			assertThat(codeSource(application)).isEqualTo(secondUrl.toString());
+			Class<?> second = loader.loadClass("demo.Second");
+			assertThat(codeSource(second)).isEqualTo(firstUrl.toString());
+		}
+	}
+
+	@Test
+	void loadClassWhenEarlierJarContainsPackageButNotClass() throws Exception {
+		File jarFile = createJarWithNestedJars(createNestedJarWithEntries("demo/resource.txt"),
+				createNestedJar(null, "demo.Application"));
+		URL firstUrl = JarUrl.create(jarFile, "first.jar");
+		URL secondUrl = JarUrl.create(jarFile, "second.jar");
+		try (JarUrlClassLoader loader = new TestJarUrlClassLoader(firstUrl, secondUrl)) {
+			Class<?> application = loader.loadClass("demo.Application");
+			assertThat(codeSource(application)).isEqualTo(secondUrl.toString());
+		}
+	}
+
+	@Test
+	void loadClassInDefaultPackage() throws Exception {
+		File jarFile = createJarWithNestedJars(createNestedJar(null, "app.Second"), createNestedJar(null, "Root"));
+		URL firstUrl = JarUrl.create(jarFile, "first.jar");
+		URL secondUrl = JarUrl.create(jarFile, "second.jar");
+		try (JarUrlClassLoader loader = new TestJarUrlClassLoader(firstUrl, secondUrl)) {
+			Class<?> root = loader.loadClass("Root");
+			assertThat(codeSource(root)).isEqualTo(secondUrl.toString());
+		}
+	}
+
+	@Test
+	void loadClassAfterClearCache() throws Exception {
+		File jarFile = createJarWithNestedJars(createNestedJar(null, "demo.Application", "demo.Second"),
+				createNestedJar(null, "app.Second"));
+		URL url = JarUrl.create(jarFile, "first.jar");
+		try (JarUrlClassLoader loader = new TestJarUrlClassLoader(url)) {
+			assertThat(loader.loadClass("demo.Application")).isNotNull();
+			loader.clearCache();
+			assertThat(loader.loadClass("demo.Second")).isNotNull();
+		}
+	}
+
+	@Test
+	void loadClassWhenPackageOnlyExistsInVersionedEntry() throws Exception {
+		File jarFile = createJarWithNestedJars(createMultiReleaseNestedJar("demo.Versioned"),
+				createNestedJar(null, "app.Second"));
+		URL url = JarUrl.create(jarFile, "first.jar");
+		try (JarUrlClassLoader loader = new TestJarUrlClassLoader(url)) {
+			assertThat(loader.loadClass("demo.Versioned")).isNotNull();
+		}
+	}
+
+	private String codeSource(Class<?> type) {
+		return type.getProtectionDomain().getCodeSource().getLocation().toString();
+	}
+
+	private File createJarWithNestedJars(byte[] first, byte[] second) throws Exception {
+		File jarFile = new File(this.tempDir, "test.jar");
+		try (JarOutputStream jarOutputStream = new JarOutputStream(new FileOutputStream(jarFile))) {
+			writeStoredEntry(jarOutputStream, "first.jar", first);
+			writeStoredEntry(jarOutputStream, "second.jar", second);
+		}
+		return jarFile;
+	}
+
+	private byte[] createNestedJar(@Nullable String implementationVersion, String... classNames) throws Exception {
+		ByteArrayOutputStream data = new ByteArrayOutputStream();
+		Manifest manifest = new Manifest();
+		manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+		if (implementationVersion != null) {
+			manifest.getMainAttributes().put(Attributes.Name.IMPLEMENTATION_VERSION, implementationVersion);
+		}
+		try (JarOutputStream jarOutputStream = new JarOutputStream(data, manifest)) {
+			for (String className : classNames) {
+				jarOutputStream.putNextEntry(new JarEntry(className.replace('.', '/') + ".class"));
+				jarOutputStream.write(classData(className));
+				jarOutputStream.closeEntry();
+			}
+		}
+		return data.toByteArray();
+	}
+
+	private byte[] createNestedJarWithEntries(String... entryNames) throws Exception {
+		ByteArrayOutputStream data = new ByteArrayOutputStream();
+		Manifest manifest = new Manifest();
+		manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+		try (JarOutputStream jarOutputStream = new JarOutputStream(data, manifest)) {
+			for (String entryName : entryNames) {
+				jarOutputStream.putNextEntry(new JarEntry(entryName));
+				jarOutputStream.write(42);
+				jarOutputStream.closeEntry();
+			}
+		}
+		return data.toByteArray();
+	}
+
+	private byte[] createMultiReleaseNestedJar(String className) throws Exception {
+		ByteArrayOutputStream data = new ByteArrayOutputStream();
+		Manifest manifest = new Manifest();
+		manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+		manifest.getMainAttributes().putValue("Multi-Release", "true");
+		try (JarOutputStream jarOutputStream = new JarOutputStream(data, manifest)) {
+			String entryName = "META-INF/versions/%d/%s.class".formatted(TestJar.MULTI_JAR_VERSION,
+					className.replace('.', '/'));
+			jarOutputStream.putNextEntry(new JarEntry(entryName));
+			jarOutputStream.write(classData(className));
+			jarOutputStream.closeEntry();
+		}
+		return data.toByteArray();
+	}
+
+	private byte[] classData(String className) throws Exception {
+		String entryName = className.replace('.', '/') + ".class";
+		try (JarFile appJar = new JarFile("src/test/resources/jars/app.jar")) {
+			JarEntry entry = appJar.getJarEntry(entryName);
+			if (entry != null) {
+				try (InputStream inputStream = appJar.getInputStream(entry)) {
+					return inputStream.readAllBytes();
+				}
+			}
+		}
+		return compileClass(className);
+	}
+
+	private byte[] compileClass(String className) throws Exception {
+		Path sourceDirectory = this.tempDir.toPath().resolve("source");
+		Path outputDirectory = this.tempDir.toPath().resolve("classes");
+		Path sourceFile = sourceDirectory.resolve(className.replace('.', '/') + ".java");
+		Files.createDirectories(sourceFile.getParent());
+		Files.createDirectories(outputDirectory);
+		int lastDot = className.lastIndexOf('.');
+		String source = (lastDot != -1) ? "package %s; public class %s {}".formatted(className.substring(0, lastDot),
+				className.substring(lastDot + 1)) : "public class %s {}".formatted(className);
+		Files.writeString(sourceFile, source);
+		int result = ToolProvider.getSystemJavaCompiler()
+			.run(null, null, null, "-d", outputDirectory.toString(), sourceFile.toString());
+		assertThat(result).isZero();
+		return Files.readAllBytes(outputDirectory.resolve(className.replace('.', '/') + ".class"));
 	}
 
 	@Test
