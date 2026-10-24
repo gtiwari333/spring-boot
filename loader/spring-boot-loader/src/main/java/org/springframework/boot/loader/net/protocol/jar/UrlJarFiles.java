@@ -57,17 +57,28 @@ class UrlJarFiles {
 	}
 
 	/**
+	 * Create a new {@link JarFile} without interacting with the cache.
+	 * @param jarFileUrl the jar file URL
+	 * @return a new {@link JarFile} instance
+	 * @throws IOException on I/O error
+	 */
+	JarFile createJarFile(URL jarFileUrl) throws IOException {
+		return this.factory.createJarFile(jarFileUrl, this::onClose);
+	}
+
+	/**
 	 * Get an existing {@link JarFile} instance from the cache, or create a new
-	 * {@link JarFile} instance that can be {@link #cacheIfAbsent(boolean, URL, JarFile)
-	 * cached later}.
+	 * {@link JarFile} instance that can be
+	 * {@link #cacheIfAbsent(boolean, JarFileUrlKey, URL, JarFile) cached later}.
 	 * @param useCaches if caches can be used
+	 * @param jarFileUrlKey the jar file URL key
 	 * @param jarFileUrl the jar file URL
 	 * @return a new or existing {@link JarFile} instance
 	 * @throws IOException on I/O error
 	 */
-	JarFile getOrCreate(boolean useCaches, URL jarFileUrl) throws IOException {
+	JarFile getOrCreate(boolean useCaches, JarFileUrlKey jarFileUrlKey, URL jarFileUrl) throws IOException {
 		if (useCaches) {
-			JarFile cached = getCached(jarFileUrl);
+			JarFile cached = getCached(jarFileUrlKey);
 			if (cached != null) {
 				return cached;
 			}
@@ -77,36 +88,37 @@ class UrlJarFiles {
 
 	/**
 	 * Return the cached {@link JarFile} if available.
-	 * @param jarFileUrl the jar file URL
+	 * @param jarFileUrlKey the jar file URL key
 	 * @return the cached jar or {@code null}
 	 */
-	JarFile getCached(URL jarFileUrl) {
-		return this.cache.get(jarFileUrl);
+	JarFile getCached(JarFileUrlKey jarFileUrlKey) {
+		return this.cache.get(jarFileUrlKey);
 	}
 
 	/**
 	 * Cache the given {@link JarFile} if caching can be used and there is no existing
 	 * entry.
 	 * @param useCaches if caches can be used
+	 * @param jarFileUrlKey the jar file URL key
 	 * @param jarFileUrl the jar file URL
 	 * @param jarFile the jar file
 	 * @return {@code true} if that file was added to the cache
 	 */
-	boolean cacheIfAbsent(boolean useCaches, URL jarFileUrl, JarFile jarFile) {
+	boolean cacheIfAbsent(boolean useCaches, JarFileUrlKey jarFileUrlKey, URL jarFileUrl, JarFile jarFile) {
 		if (!useCaches) {
 			return false;
 		}
-		return this.cache.putIfAbsent(jarFileUrl, jarFile);
+		return this.cache.putIfAbsent(jarFileUrlKey, jarFile, jarFileUrl);
 	}
 
 	/**
 	 * Close the given {@link JarFile} only if it is not contained in the cache.
-	 * @param jarFileUrl the jar file URL
+	 * @param jarFileUrlKey the jar file URL key
 	 * @param jarFile the jar file
 	 * @throws IOException on I/O error
 	 */
-	void closeIfNotCached(URL jarFileUrl, JarFile jarFile) throws IOException {
-		JarFile cached = getCached(jarFileUrl);
+	void closeIfNotCached(JarFileUrlKey jarFileUrlKey, JarFile jarFile) throws IOException {
+		JarFile cached = getCached(jarFileUrlKey);
 		if (cached != jarFile) {
 			jarFile.close();
 		}

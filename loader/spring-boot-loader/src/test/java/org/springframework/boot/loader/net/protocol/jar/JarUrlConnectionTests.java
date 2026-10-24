@@ -237,7 +237,7 @@ class JarUrlConnectionTests {
 	void getInputStreamWhenOptimizedWithoutReadAndHasCachedJarWithEntryReturnsEmptyInputStream() throws Exception {
 		JarUrlConnection setupConnection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar"));
 		setupConnection.connect();
-		assertThat(JarUrlConnection.jarFiles.getCached(setupConnection.getJarFileURL())).isNotNull();
+		assertThat(getCached(setupConnection.getJarFileURL())).isNotNull();
 		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "3.dat"));
 		connection.setUseCaches(false);
 		Optimizations.enable(false);
@@ -248,7 +248,7 @@ class JarUrlConnectionTests {
 	void getInputStreamWhenNoEntryAndOptimizedThrowsException() throws Exception {
 		JarUrlConnection setupConnection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar"));
 		setupConnection.connect();
-		assertThat(JarUrlConnection.jarFiles.getCached(setupConnection.getJarFileURL())).isNotNull();
+		assertThat(getCached(setupConnection.getJarFileURL())).isNotNull();
 		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "missing.dat"));
 		Optimizations.enable(false);
 		assertThatExceptionOfType(FileNotFoundException.class).isThrownBy(connection::getInputStream)
@@ -420,11 +420,76 @@ class JarUrlConnectionTests {
 	void connectWhenOptimizationsEnabledAndHasCachedJarWithoutEntryThrowsException() throws Exception {
 		JarUrlConnection setupConnection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar"));
 		setupConnection.connect();
-		assertThat(JarUrlConnection.jarFiles.getCached(setupConnection.getJarFileURL())).isNotNull();
+		assertThat(getCached(setupConnection.getJarFileURL())).isNotNull();
 		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "missing.dat"));
 		Optimizations.enable(true);
 		assertThatExceptionOfType(FileNotFoundException.class).isThrownBy(connection::connect)
 			.isSameAs(JarUrlConnection.FILE_NOT_FOUND_EXCEPTION);
+		// The cached-entry check throws before the jar file is looked up
+		assertThat(ReflectionTestUtils.getField(connection, "jarFile")).isNull();
+	}
+
+	@Test
+	void connectWhenOptimizationsEnabledAndHasCachedJarWithEntryConnects() throws Exception {
+		JarUrlConnection setupConnection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar"));
+		setupConnection.connect();
+		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "3.dat"));
+		Optimizations.enable(true);
+		connection.connect();
+		assertThat(connection.getJarEntry()).isNotNull();
+	}
+
+	@Test
+	void connectWhenOptimizationsEnabledAndHasCachedNonNestedJarWithoutEntryThrowsException() throws Exception {
+		try (JarOutputStream out = new JarOutputStream(new FileOutputStream(this.file))) {
+			out.putNextEntry(new ZipEntry("present.dat"));
+			out.write("present".getBytes(StandardCharsets.UTF_8));
+			out.closeEntry();
+		}
+		URL presentUrl = new URL("jar:file:" + this.file.getAbsolutePath() + "!/present.dat");
+		JarUrlConnection setupConnection = JarUrlConnection.open(presentUrl);
+		setupConnection.connect();
+		assertThat(setupConnection.getJarFile()).isInstanceOf(UrlJarFile.class);
+		URL missingUrl = new URL("jar:file:" + this.file.getAbsolutePath() + "!/missing.dat");
+		JarUrlConnection connection = JarUrlConnection.open(missingUrl);
+		Optimizations.enable(true);
+		assertThatExceptionOfType(FileNotFoundException.class).isThrownBy(connection::connect)
+			.isSameAs(JarUrlConnection.FILE_NOT_FOUND_EXCEPTION);
+		// The cached-entry check throws before the jar file is looked up
+		assertThat(ReflectionTestUtils.getField(connection, "jarFile")).isNull();
+	}
+
+	@Test
+	void connectWhenNotUsingCachesDoesNotCacheJarFile() throws Exception {
+		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "3.dat"));
+		connection.setUseCaches(false);
+		connection.connect();
+		assertThat(getCached(connection.getJarFileURL())).isNull();
+	}
+
+	@Test
+	void connectWhenNotUsingCachesAndOptimizationsEnabledChecksCachedJarForEntry() throws Exception {
+		JarUrlConnection setupConnection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar"));
+		setupConnection.connect();
+		assertThat(getCached(setupConnection.getJarFileURL())).isNotNull();
+		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "missing.dat"));
+		connection.setUseCaches(false);
+		Optimizations.enable(true);
+		assertThatExceptionOfType(FileNotFoundException.class).isThrownBy(connection::connect)
+			.isSameAs(JarUrlConnection.FILE_NOT_FOUND_EXCEPTION);
+		// The cached-entry check throws before the jar file is looked up
+		assertThat(ReflectionTestUtils.getField(connection, "jarFile")).isNull();
+	}
+
+	@Test
+	void connectWhenCachedUsesCachedJarFile() throws Exception {
+		URL url = JarUrl.create(this.file, "nested.jar", "3.dat");
+		JarUrlConnection firstConnection = JarUrlConnection.open(url);
+		firstConnection.connect();
+		JarUrlConnection secondConnection = JarUrlConnection.open(url);
+		Optimizations.enable(true);
+		secondConnection.connect();
+		assertThat(secondConnection.getJarFile()).isSameAs(firstConnection.getJarFile());
 	}
 
 	@Test
@@ -450,6 +515,22 @@ class JarUrlConnectionTests {
 	}
 
 	@Test
+	void connectWhenOptimizationsEnabledAndEntryMissingFromUncachedNonNestedJarFailsDuringLookup() throws Exception {
+		try (JarOutputStream out = new JarOutputStream(new FileOutputStream(this.file))) {
+			out.putNextEntry(new ZipEntry("present.dat"));
+			out.write("present".getBytes(StandardCharsets.UTF_8));
+			out.closeEntry();
+		}
+		URL missingUrl = new URL("jar:file:" + this.file.getAbsolutePath() + "!/missing.dat");
+		JarUrlConnection connection = JarUrlConnection.open(missingUrl);
+		Optimizations.enable(true);
+		assertThatExceptionOfType(FileNotFoundException.class).isThrownBy(connection::connect)
+			.isSameAs(JarUrlConnection.FILE_NOT_FOUND_EXCEPTION);
+		// The cached-entry check had nothing to inspect, so the normal lookup ran
+		assertThat(ReflectionTestUtils.getField(connection, "jarFile")).isNotNull();
+	}
+
+	@Test
 	void connectWhenEntryExists() throws Exception {
 		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "3.dat"));
 		connection.connect();
@@ -468,7 +549,7 @@ class JarUrlConnectionTests {
 	void openWhenNestedAndInCachedWithoutEntryAndOptimizationsEnabledReturnsNoFoundConnection() throws Exception {
 		JarUrlConnection setupConnection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar"));
 		setupConnection.connect();
-		assertThat(JarUrlConnection.jarFiles.getCached(setupConnection.getJarFileURL())).isNotNull();
+		assertThat(getCached(setupConnection.getJarFileURL())).isNotNull();
 		Optimizations.enable(true);
 		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "missing.dat"));
 		assertThat(connection).isSameAs(JarUrlConnection.NOT_FOUND_CONNECTION);
@@ -512,6 +593,10 @@ class JarUrlConnectionTests {
 		JarFile jarFile = connection.getJarFile();
 		assertThat(jarFile).isNotNull();
 		assertThat(jarFile.getEntry("3.dat")).isNotNull();
+	}
+
+	private JarFile getCached(URL jarFileUrl) {
+		return JarUrlConnection.jarFiles.getCached(new JarFileUrlKey(jarFileUrl));
 	}
 
 	private long withoutNanos(long epochMilli) {

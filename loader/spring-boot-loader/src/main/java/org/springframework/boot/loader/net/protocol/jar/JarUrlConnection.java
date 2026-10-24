@@ -22,6 +22,8 @@ import java.util.function.Supplier;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.boot.loader.jar.NestedJarFile;
 import org.springframework.boot.loader.net.util.UrlDecoder;
 
@@ -173,12 +175,11 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 		if (this.entryName == null && !UrlJarFileFactory.isNestedUrl(jarFileURL)) {
 			throw new IOException("no entry name specified");
 		}
-		if (!getUseCaches() && Optimizations.isEnabled(false) && this.entryName != null) {
-			JarFile cached = jarFiles.getCached(jarFileURL);
-			if (cached != null) {
-				if (cached.getEntry(this.entryName) != null) {
-					return emptyInputStream;
-				}
+		String entryName = this.entryName;
+		if (!getUseCaches() && Optimizations.isEnabled(false) && entryName != null) {
+			JarFile cached = jarFiles.getCached(new JarFileUrlKey(jarFileURL));
+			if (cached != null && cached.getEntry(entryName) != null) {
+				return emptyInputStream;
 			}
 		}
 		connect();
@@ -272,14 +273,22 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 		}
 		boolean useCaches = getUseCaches();
 		URL jarFileURL = getJarFileURL();
-		if (this.entryName != null && Optimizations.isEnabled()) {
-			assertCachedJarFileHasEntry(jarFileURL, this.entryName);
+		String entryName = this.entryName;
+		if (entryName != null && Optimizations.isEnabled()) {
+			assertCachedJarFileHasEntry(new JarFileUrlKey(jarFileURL), entryName);
 		}
-		this.jarFile = jarFiles.getOrCreate(useCaches, jarFileURL);
-		this.jarEntry = getJarEntry(jarFileURL);
-		boolean addedToCache = jarFiles.cacheIfAbsent(useCaches, jarFileURL, this.jarFile);
-		if (addedToCache) {
-			this.jarFileConnection = jarFiles.reconnect(this.jarFile, this.jarFileConnection);
+		if (useCaches) {
+			JarFileUrlKey jarFileUrlKey = new JarFileUrlKey(jarFileURL);
+			this.jarFile = jarFiles.getOrCreate(true, jarFileUrlKey, jarFileURL);
+			this.jarEntry = getJarEntry(jarFileUrlKey);
+			boolean addedToCache = jarFiles.cacheIfAbsent(true, jarFileUrlKey, jarFileURL, this.jarFile);
+			if (addedToCache) {
+				this.jarFileConnection = jarFiles.reconnect(this.jarFile, this.jarFileConnection);
+			}
+		}
+		else {
+			this.jarFile = jarFiles.createJarFile(jarFileURL);
+			this.jarEntry = getJarEntry(null);
 		}
 		this.connected = true;
 	}
@@ -287,24 +296,30 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 	/**
 	 * The {@link URLClassLoader} connects often to check if a resource exists, we can
 	 * save some object allocations by using the cached copy if we have one.
-	 * @param jarFileURL the jar file to check
+	 * @param jarFileUrlKey the jar file to check
 	 * @param entryName the entry name to check
 	 * @throws FileNotFoundException on a missing entry
 	 */
-	private void assertCachedJarFileHasEntry(URL jarFileURL, String entryName) throws FileNotFoundException {
-		JarFile cachedJarFile = jarFiles.getCached(jarFileURL);
-		if (cachedJarFile != null && cachedJarFile.getJarEntry(entryName) == null) {
+	private void assertCachedJarFileHasEntry(JarFileUrlKey jarFileUrlKey, String entryName)
+			throws FileNotFoundException {
+		JarFile cachedJarFile = jarFiles.getCached(jarFileUrlKey);
+		if (cachedJarFile != null && !hasEntry(cachedJarFile, entryName)) {
 			throw FILE_NOT_FOUND_EXCEPTION;
 		}
 	}
 
-	private JarEntry getJarEntry(URL jarFileUrl) throws IOException {
+	private JarEntry getJarEntry(@Nullable JarFileUrlKey jarFileUrlKey) throws IOException {
 		if (this.entryName == null) {
 			return null;
 		}
 		JarEntry jarEntry = this.jarFile.getJarEntry(this.entryName);
 		if (jarEntry == null) {
-			jarFiles.closeIfNotCached(jarFileUrl, this.jarFile);
+			if (jarFileUrlKey != null) {
+				jarFiles.closeIfNotCached(jarFileUrlKey, this.jarFile);
+			}
+			else {
+				this.jarFile.close();
+			}
 			throwFileNotFound();
 		}
 		return jarEntry;
