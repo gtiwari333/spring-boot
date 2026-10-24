@@ -128,6 +128,19 @@ class DefaultBindConstructorProviderTests {
 		assertThat(bindConstructor).isNotNull();
 	}
 
+	@Test
+	void getBindConstructorWhenIsNonStaticInnerTypeReturnsNull() {
+		Constructor<?> constructor = this.provider.getBindConstructor(OuterType.InnerType.class, false);
+		assertThat(constructor).isNull();
+	}
+
+	@Test
+	void getBindConstructorWhenIsStaticMemberTypeReturnsConstructor() {
+		Constructor<?> constructor = this.provider.getBindConstructor(StaticMemberType.class, false);
+		assertThat(constructor).isNotNull();
+		assertThat(constructor.getParameterCount()).isOne();
+	}
+
 	static class OnlyDefaultConstructor {
 
 	}
@@ -233,6 +246,24 @@ class DefaultBindConstructorProviderTests {
 			private Member(String name) {
 			}
 
+		}
+
+	}
+
+	static class OuterType {
+
+		class InnerType {
+
+			InnerType(String name) {
+			}
+
+		}
+
+	}
+
+	static class StaticMemberType {
+
+		StaticMemberType(String name) {
 		}
 
 	}

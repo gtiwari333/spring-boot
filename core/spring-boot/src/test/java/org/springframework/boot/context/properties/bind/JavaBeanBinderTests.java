@@ -361,6 +361,16 @@ class JavaBeanBinderTests {
 	}
 
 	@Test
+	void bindToClassWhenNoDefaultConstructorAndJavaBeanBindingShouldReturnUnbound() {
+		MockConfigurationPropertySource source = new MockConfigurationPropertySource();
+		source.put("foo.value", "bar");
+		this.sources.add(source);
+		BindResult<ExampleWithNonDefaultConstructor> bean = this.binder.bind("foo",
+				Bindable.of(ExampleWithNonDefaultConstructor.class).withBindMethod(BindMethod.JAVA_BEAN));
+		assertThat(bean.isBound()).isFalse();
+	}
+
+	@Test
 	void bindToInstanceWhenNoDefaultConstructorShouldBind() {
 		Binder binder = new Binder(this.sources, null, (ConversionService) null, null, null,
 				(bindable, isNestedConstructorBinding) -> null);

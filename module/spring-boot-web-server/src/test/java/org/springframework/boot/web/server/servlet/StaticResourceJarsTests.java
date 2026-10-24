@@ -66,6 +66,30 @@ class StaticResourceJarsTests {
 	}
 
 	@Test
+	void includeDirectoryWithStaticResources() throws Exception {
+		File directory = new File(this.tempDir, "static-resources");
+		assertThat(new File(directory, "META-INF/resources").mkdirs()).isTrue();
+		List<URL> staticResourceJarUrls = new StaticResourceJars().getUrlsFrom(directory.toURI().toURL());
+		assertThat(staticResourceJarUrls).hasSize(1);
+	}
+
+	@Test
+	void excludeDirectoryWithoutStaticResources() throws Exception {
+		File directory = new File(this.tempDir, "static-resources");
+		assertThat(directory.mkdirs()).isTrue();
+		List<URL> staticResourceJarUrls = new StaticResourceJars().getUrlsFrom(directory.toURI().toURL());
+		assertThat(staticResourceJarUrls).isEmpty();
+	}
+
+	@Test
+	void excludeFileThatIsNotAJar() throws Exception {
+		File file = new File(this.tempDir, "not-a-jar.txt");
+		assertThat(file.createNewFile()).isTrue();
+		List<URL> staticResourceJarUrls = new StaticResourceJars().getUrlsFrom(file.toURI().toURL());
+		assertThat(staticResourceJarUrls).isEmpty();
+	}
+
+	@Test
 	@DisabledForJreRange(min = JRE.JAVA_25) // Requires -Djdk.net.file.ftpfallback=true
 	void uncPathsAreTolerated() throws Exception {
 		File jarFile = createResourcesJar("test-resources.jar");

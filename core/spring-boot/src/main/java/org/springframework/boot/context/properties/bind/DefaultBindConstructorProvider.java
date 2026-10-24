@@ -130,6 +130,10 @@ class DefaultBindConstructorProvider implements BindConstructorProvider {
 		}
 
 		private static boolean isInnerClass(Class<?> type) {
+			if (type.getEnclosingClass() == null || Modifier.isStatic(type.getModifiers())) {
+				// Top-level and static nested classes don't have an enclosing instance
+				return false;
+			}
 			try {
 				return type.getDeclaredField("this$0").isSynthetic();
 			}

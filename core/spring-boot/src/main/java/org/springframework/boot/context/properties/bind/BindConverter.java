@@ -92,6 +92,10 @@ final class BindConverter {
 
 	private @Nullable Object convert(@Nullable Object source, @Nullable TypeDescriptor sourceType,
 			TypeDescriptor targetType) {
+		if (source == null && targetType.isPrimitive()) {
+			// A null value cannot be converted to a primitive, so there's no need to try
+			return null;
+		}
 		ConversionException failure = null;
 		for (ConversionService delegate : this.delegates) {
 			try {

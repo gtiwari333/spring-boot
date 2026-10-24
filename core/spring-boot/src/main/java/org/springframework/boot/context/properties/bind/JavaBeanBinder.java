@@ -6,6 +6,7 @@ package org.springframework.boot.context.properties.bind;
 
 import java.beans.Introspector;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -305,13 +306,12 @@ class JavaBeanBinder implements DataObjectBinder {
 			if (type.isInterface()) {
 				return false;
 			}
-			try {
-				type.getDeclaredConstructor();
-				return true;
+			for (Constructor<?> candidate : type.getDeclaredConstructors()) {
+				if (candidate.getParameterCount() == 0) {
+					return true;
+				}
 			}
-			catch (Exception ex) {
-				return false;
-			}
+			return false;
 		}
 
 		private record CacheKey(ResolvableType type, Class<?> resolvedType) {

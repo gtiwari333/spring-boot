@@ -149,6 +149,13 @@ class BindConverterTests {
 	}
 
 	@Test
+	void convertWhenSourceIsNullAndTargetTypeIsPrimitiveReturnsNullWithoutUsingConversionServices() {
+		BindConverter bindConverter = getPropertyEditorOnlyBindConverter(null);
+		Object converted = bindConverter.convert(null, ResolvableType.forClass(boolean.class));
+		assertThat(converted).isNull();
+	}
+
+	@Test
 	void convertWhenNotPropertyEditorAndConversionServiceCannotConvertShouldThrowException() {
 		BindConverter bindConverter = BindConverter.get(null, null);
 		assertThatExceptionOfType(ConverterNotFoundException.class)

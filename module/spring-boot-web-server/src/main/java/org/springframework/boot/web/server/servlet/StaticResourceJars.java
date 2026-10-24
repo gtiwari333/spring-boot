@@ -92,7 +92,12 @@ class StaticResourceJars {
 	}
 
 	private void addUrlFile(List<URL> urls, URL url, File file) {
-		if ((file.isDirectory() && new File(file, "META-INF/resources").isDirectory()) || isResourcesJar(file)) {
+		if (file.isDirectory()) {
+			if (new File(file, "META-INF/resources").isDirectory()) {
+				urls.add(url);
+			}
+		}
+		else if (file.isFile() && file.getName().endsWith(".jar") && isResourcesJar(file)) {
 			urls.add(url);
 		}
 	}
