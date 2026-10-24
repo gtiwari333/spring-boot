@@ -130,6 +130,98 @@ class UrlJarFilesTests {
 	}
 
 	@Test
+	void getOrCreateWithKeyWhenNotUsingCachesAlwaysCreatesNewJarFile() throws Exception {
+		given(this.factory.createJarFile(any(), any())).willCallRealMethod();
+		JarFileUrlKey key = new JarFileUrlKey(this.url);
+		JarFile jarFile1 = this.jarFiles.getOrCreate(false, key, this.url);
+		JarFile jarFile2 = this.jarFiles.getOrCreate(false, key, this.url);
+		JarFile jarFile3 = this.jarFiles.getOrCreate(false, key, this.url);
+		assertThat(jarFile1).isNotSameAs(jarFile2).isNotSameAs(jarFile3);
+	}
+
+	@Test
+	void getOrCreateWithKeyWhenUsingCachingReturnsCachedWhenAvailable() throws Exception {
+		given(this.factory.createJarFile(any(), any())).willCallRealMethod();
+		JarFileUrlKey key = new JarFileUrlKey(this.url);
+		JarFile jarFile1 = this.jarFiles.getOrCreate(true, key, this.url);
+		this.jarFiles.cacheIfAbsent(true, key, this.url, jarFile1);
+		JarFile jarFile2 = this.jarFiles.getOrCreate(true, key, this.url);
+		JarFile jarFile3 = this.jarFiles.getOrCreate(true, key, this.url);
+		assertThat(jarFile1).isSameAs(jarFile2).isSameAs(jarFile3);
+	}
+
+	@Test
+	void getCachedWithKeyWhenNotCachedReturnsNull() {
+		assertThat(this.jarFiles.getCached(new JarFileUrlKey(this.url))).isNull();
+	}
+
+	@Test
+	void getCachedWithKeyWhenCachedReturnsCachedJar() throws Exception {
+		given(this.factory.createJarFile(any(), any())).willCallRealMethod();
+		JarFile jarFile = this.factory.createJarFile(this.url, null);
+		JarFileUrlKey key = new JarFileUrlKey(this.url);
+		this.jarFiles.cacheIfAbsent(true, key, this.url, jarFile);
+		assertThat(this.jarFiles.getCached(key)).isSameAs(jarFile);
+	}
+
+	@Test
+	void cacheIfAbsentWithKeyWhenNotUsingCachesDoesNotCacheAndReturnsFalse() throws Exception {
+		given(this.factory.createJarFile(any(), any())).willCallRealMethod();
+		JarFile jarFile = this.factory.createJarFile(this.url, null);
+		JarFileUrlKey key = new JarFileUrlKey(this.url);
+		assertThat(this.jarFiles.cacheIfAbsent(false, key, this.url, jarFile)).isFalse();
+		assertThat(this.jarFiles.getCached(key)).isNull();
+	}
+
+	@Test
+	void cacheIfAbsentWithKeyWhenUsingCachingAndNotAlreadyCachedCachesAndReturnsTrue() throws Exception {
+		given(this.factory.createJarFile(any(), any())).willCallRealMethod();
+		JarFile jarFile = this.factory.createJarFile(this.url, null);
+		JarFileUrlKey key = new JarFileUrlKey(this.url);
+		assertThat(this.jarFiles.cacheIfAbsent(true, key, this.url, jarFile)).isTrue();
+		assertThat(this.jarFiles.getCached(key)).isSameAs(jarFile);
+	}
+
+	@Test
+	void cacheIfAbsentWithKeyWhenUsingCachingAndAlreadyCachedLeavesCacheAndReturnsFalse() throws Exception {
+		given(this.factory.createJarFile(any(), any())).willCallRealMethod();
+		JarFile jarFile1 = this.factory.createJarFile(this.url, null);
+		JarFile jarFile2 = this.factory.createJarFile(this.url, null);
+		JarFileUrlKey key = new JarFileUrlKey(this.url);
+		assertThat(this.jarFiles.cacheIfAbsent(true, key, this.url, jarFile1)).isTrue();
+		assertThat(this.jarFiles.cacheIfAbsent(true, key, this.url, jarFile2)).isFalse();
+		assertThat(this.jarFiles.getCached(key)).isSameAs(jarFile1);
+	}
+
+	@Test
+	void closeIfNotCachedWithKeyWhenNotCachedClosesJarFile() throws Exception {
+		JarFile jarFile = mock(JarFile.class);
+		this.jarFiles.closeIfNotCached(new JarFileUrlKey(this.url), jarFile);
+		then(jarFile).should().close();
+	}
+
+	@Test
+	void closeIfNotCachedWithKeyWhenCachedDoesNotCloseJarFile() throws Exception {
+		JarFile jarFile = mock(JarFile.class);
+		JarFileUrlKey key = new JarFileUrlKey(this.url);
+		this.jarFiles.cacheIfAbsent(true, key, this.url, jarFile);
+		this.jarFiles.closeIfNotCached(key, jarFile);
+		then(jarFile).should(never()).close();
+	}
+
+	@Test
+	void keyAndUrlBasedMethodsShareTheSameCache() throws Exception {
+		given(this.factory.createJarFile(any(), any())).willCallRealMethod();
+		JarFile jarFile1 = this.factory.createJarFile(this.url, null);
+		JarFile jarFile2 = this.factory.createJarFile(this.url, null);
+		JarFileUrlKey key = new JarFileUrlKey(this.url);
+		assertThat(this.jarFiles.cacheIfAbsent(true, this.url, jarFile1)).isTrue();
+		assertThat(this.jarFiles.getCached(key)).isSameAs(jarFile1);
+		assertThat(this.jarFiles.cacheIfAbsent(true, key, this.url, jarFile2)).isFalse();
+		assertThat(this.jarFiles.getCached(this.url)).isSameAs(jarFile1);
+	}
+
+	@Test
 	void reconnectReconnectsAndAppliesUseCaches() throws Exception {
 		JarFile jarFile = mock(JarFile.class);
 		this.jarFiles.cacheIfAbsent(true, this.url, jarFile);
