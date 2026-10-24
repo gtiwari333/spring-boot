@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,6 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
+import java.util.stream.Stream;
+
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.boot.loader.jar.NestedJarFile;
 import org.springframework.boot.loader.launch.LaunchedClassLoader;
@@ -304,6 +308,9 @@ public abstract class JarUrlClassLoader extends URLClassLoader {
 			}
 			this.jarFiles.clear();
 		}
+		if (this.nestedOnlyOptimizedLoader != null) {
+			this.nestedOnlyOptimizedLoader.clearCache();
+		}
 	}
 
 	final URL[] urls() {
@@ -316,16 +323,48 @@ public abstract class JarUrlClassLoader extends URLClassLoader {
 	 */
 	private final class NestedOnlyOptimizedLoader {
 
+		private final Map<NestedJarFile, Set<String>> packageNames = new ConcurrentHashMap<>();
+
 		Class<?> findClass(String name) throws ClassNotFoundException {
 			String entryName = name.replace('.', '/').concat(".class");
+			String packageName = getPackageName(entryName);
 			for (URL url : urls()) {
 				NestedJarFile jarFile = getNestedJarFile(url);
-				JarEntry entry = (jarFile != null) ? jarFile.getJarEntry(entryName) : null;
-				if (entry != null) {
-					return defineClass(jarFile, entry, url, name);
+				if (jarFile != null && (packageName == null || hasPackage(jarFile, packageName))) {
+					JarEntry entry = jarFile.getJarEntry(entryName);
+					if (entry != null) {
+						return defineClass(jarFile, entry, url, name);
+					}
 				}
 			}
 			throw new ClassNotFoundException(name);
+		}
+
+		private @Nullable String getPackageName(String entryName) {
+			int lastSlash = entryName.lastIndexOf('/');
+			return (lastSlash > 0) ? entryName.substring(0, lastSlash) : null;
+		}
+
+		private boolean hasPackage(NestedJarFile jarFile, String packageName) {
+			return this.packageNames.computeIfAbsent(jarFile, this::computePackageNames).contains(packageName);
+		}
+
+		private Set<String> computePackageNames(NestedJarFile jarFile) {
+			Set<String> packageNames = new HashSet<>();
+			try (Stream<JarEntry> entries = jarFile.versionedStream()) {
+				entries.forEach((entry) -> {
+					String entryName = entry.getName();
+					int lastSlash = entryName.lastIndexOf('/');
+					if (lastSlash > 0) {
+						packageNames.add(entryName.substring(0, lastSlash));
+					}
+				});
+			}
+			return packageNames;
+		}
+
+		void clearCache() {
+			this.packageNames.clear();
 		}
 
 		URL findResource(String name) {

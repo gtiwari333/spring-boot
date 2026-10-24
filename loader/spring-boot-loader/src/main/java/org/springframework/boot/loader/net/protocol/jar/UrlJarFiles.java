@@ -66,8 +66,12 @@ class UrlJarFiles {
 	 * @throws IOException on I/O error
 	 */
 	JarFile getOrCreate(boolean useCaches, URL jarFileUrl) throws IOException {
+		return getOrCreate(useCaches, new JarFileUrlKey(jarFileUrl), jarFileUrl);
+	}
+
+	JarFile getOrCreate(boolean useCaches, JarFileUrlKey jarFileUrlKey, URL jarFileUrl) throws IOException {
 		if (useCaches) {
-			JarFile cached = getCached(jarFileUrl);
+			JarFile cached = getCached(jarFileUrlKey);
 			if (cached != null) {
 				return cached;
 			}
@@ -81,7 +85,11 @@ class UrlJarFiles {
 	 * @return the cached jar or {@code null}
 	 */
 	JarFile getCached(URL jarFileUrl) {
-		return this.cache.get(jarFileUrl);
+		return getCached(new JarFileUrlKey(jarFileUrl));
+	}
+
+	JarFile getCached(JarFileUrlKey jarFileUrlKey) {
+		return this.cache.get(jarFileUrlKey);
 	}
 
 	/**
@@ -93,10 +101,14 @@ class UrlJarFiles {
 	 * @return {@code true} if that file was added to the cache
 	 */
 	boolean cacheIfAbsent(boolean useCaches, URL jarFileUrl, JarFile jarFile) {
+		return cacheIfAbsent(useCaches, new JarFileUrlKey(jarFileUrl), jarFileUrl, jarFile);
+	}
+
+	boolean cacheIfAbsent(boolean useCaches, JarFileUrlKey jarFileUrlKey, URL jarFileUrl, JarFile jarFile) {
 		if (!useCaches) {
 			return false;
 		}
-		return this.cache.putIfAbsent(jarFileUrl, jarFile);
+		return this.cache.putIfAbsent(jarFileUrlKey, jarFile, jarFileUrl);
 	}
 
 	/**
@@ -106,7 +118,11 @@ class UrlJarFiles {
 	 * @throws IOException on I/O error
 	 */
 	void closeIfNotCached(URL jarFileUrl, JarFile jarFile) throws IOException {
-		JarFile cached = getCached(jarFileUrl);
+		closeIfNotCached(new JarFileUrlKey(jarFileUrl), jarFile);
+	}
+
+	void closeIfNotCached(JarFileUrlKey jarFileUrlKey, JarFile jarFile) throws IOException {
+		JarFile cached = getCached(jarFileUrlKey);
 		if (cached != jarFile) {
 			jarFile.close();
 		}

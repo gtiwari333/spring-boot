@@ -272,12 +272,13 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 		}
 		boolean useCaches = getUseCaches();
 		URL jarFileURL = getJarFileURL();
+		JarFileUrlKey jarFileUrlKey = new JarFileUrlKey(jarFileURL);
 		if (this.entryName != null && Optimizations.isEnabled()) {
-			assertCachedJarFileHasEntry(jarFileURL, this.entryName);
+			assertCachedJarFileHasEntry(jarFileUrlKey, this.entryName);
 		}
-		this.jarFile = jarFiles.getOrCreate(useCaches, jarFileURL);
-		this.jarEntry = getJarEntry(jarFileURL);
-		boolean addedToCache = jarFiles.cacheIfAbsent(useCaches, jarFileURL, this.jarFile);
+		this.jarFile = jarFiles.getOrCreate(useCaches, jarFileUrlKey, jarFileURL);
+		this.jarEntry = getJarEntry(jarFileUrlKey);
+		boolean addedToCache = jarFiles.cacheIfAbsent(useCaches, jarFileUrlKey, jarFileURL, this.jarFile);
 		if (addedToCache) {
 			this.jarFileConnection = jarFiles.reconnect(this.jarFile, this.jarFileConnection);
 		}
@@ -287,24 +288,25 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 	/**
 	 * The {@link URLClassLoader} connects often to check if a resource exists, we can
 	 * save some object allocations by using the cached copy if we have one.
-	 * @param jarFileURL the jar file to check
+	 * @param jarFileUrlKey the jar file to check
 	 * @param entryName the entry name to check
 	 * @throws FileNotFoundException on a missing entry
 	 */
-	private void assertCachedJarFileHasEntry(URL jarFileURL, String entryName) throws FileNotFoundException {
-		JarFile cachedJarFile = jarFiles.getCached(jarFileURL);
-		if (cachedJarFile != null && cachedJarFile.getJarEntry(entryName) == null) {
+	private void assertCachedJarFileHasEntry(JarFileUrlKey jarFileUrlKey, String entryName)
+			throws FileNotFoundException {
+		JarFile cachedJarFile = jarFiles.getCached(jarFileUrlKey);
+		if (cachedJarFile != null && !hasEntry(cachedJarFile, entryName)) {
 			throw FILE_NOT_FOUND_EXCEPTION;
 		}
 	}
 
-	private JarEntry getJarEntry(URL jarFileUrl) throws IOException {
+	private JarEntry getJarEntry(JarFileUrlKey jarFileUrlKey) throws IOException {
 		if (this.entryName == null) {
 			return null;
 		}
 		JarEntry jarEntry = this.jarFile.getJarEntry(this.entryName);
 		if (jarEntry == null) {
-			jarFiles.closeIfNotCached(jarFileUrl, this.jarFile);
+			jarFiles.closeIfNotCached(jarFileUrlKey, this.jarFile);
 			throwFileNotFound();
 		}
 		return jarEntry;
