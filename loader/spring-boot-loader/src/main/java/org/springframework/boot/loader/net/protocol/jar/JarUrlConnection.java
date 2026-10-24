@@ -277,7 +277,7 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 			assertCachedJarFileHasEntry(jarFileUrlKey, this.entryName);
 		}
 		this.jarFile = jarFiles.getOrCreate(useCaches, jarFileUrlKey, jarFileURL);
-		this.jarEntry = getJarEntry(jarFileUrlKey, jarFileURL);
+		this.jarEntry = getJarEntry(jarFileUrlKey);
 		boolean addedToCache = jarFiles.cacheIfAbsent(useCaches, jarFileUrlKey, jarFileURL, this.jarFile);
 		if (addedToCache) {
 			this.jarFileConnection = jarFiles.reconnect(this.jarFile, this.jarFileConnection);
@@ -300,7 +300,7 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 		}
 	}
 
-	private JarEntry getJarEntry(JarFileUrlKey jarFileUrlKey, URL jarFileUrl) throws IOException {
+	private JarEntry getJarEntry(JarFileUrlKey jarFileUrlKey) throws IOException {
 		if (this.entryName == null) {
 			return null;
 		}
