@@ -22,8 +22,6 @@ import java.util.function.Supplier;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-import org.jspecify.annotations.Nullable;
-
 import org.springframework.boot.loader.jar.NestedJarFile;
 import org.springframework.boot.loader.net.util.UrlDecoder;
 
@@ -274,21 +272,23 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 		boolean useCaches = getUseCaches();
 		URL jarFileURL = getJarFileURL();
 		String entryName = this.entryName;
-		if (entryName != null && Optimizations.isEnabled()) {
-			assertCachedJarFileHasEntry(new JarFileUrlKey(jarFileURL), entryName);
-		}
 		if (useCaches) {
 			JarFileUrlKey jarFileUrlKey = new JarFileUrlKey(jarFileURL);
-			this.jarFile = jarFiles.getOrCreate(true, jarFileUrlKey, jarFileURL);
-			this.jarEntry = getJarEntry(jarFileUrlKey);
-			boolean addedToCache = jarFiles.cacheIfAbsent(true, jarFileUrlKey, jarFileURL, this.jarFile);
-			if (addedToCache) {
+			if (entryName != null && Optimizations.isEnabled()) {
+				assertCachedJarFileHasEntry(jarFileUrlKey, entryName);
+			}
+			this.jarFile = jarFiles.getOrCreate(jarFileUrlKey, jarFileURL);
+			this.jarEntry = getJarEntry(true);
+			if (jarFiles.cacheIfAbsent(jarFileUrlKey, jarFileURL, this.jarFile)) {
 				this.jarFileConnection = jarFiles.reconnect(this.jarFile, this.jarFileConnection);
 			}
 		}
 		else {
+			if (entryName != null && Optimizations.isEnabled()) {
+				assertCachedJarFileHasEntry(new JarFileUrlKey(jarFileURL), entryName);
+			}
 			this.jarFile = jarFiles.createJarFile(jarFileURL);
-			this.jarEntry = getJarEntry(null);
+			this.jarEntry = getJarEntry(false);
 		}
 		this.connected = true;
 	}
@@ -308,14 +308,14 @@ final class JarUrlConnection extends java.net.JarURLConnection {
 		}
 	}
 
-	private JarEntry getJarEntry(@Nullable JarFileUrlKey jarFileUrlKey) throws IOException {
+	private JarEntry getJarEntry(boolean cached) throws IOException {
 		if (this.entryName == null) {
 			return null;
 		}
 		JarEntry jarEntry = this.jarFile.getJarEntry(this.entryName);
 		if (jarEntry == null) {
-			if (jarFileUrlKey != null) {
-				jarFiles.closeIfNotCached(jarFileUrlKey, this.jarFile);
+			if (cached) {
+				jarFiles.closeIfNotCached(this.jarFile);
 			}
 			else {
 				this.jarFile.close();

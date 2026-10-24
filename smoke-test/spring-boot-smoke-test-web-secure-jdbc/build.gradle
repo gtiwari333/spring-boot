@@ -4,6 +4,7 @@
 
 plugins {
 	id "java"
+	id 'org.springframework.boot' version '4.2.0-SNAPSHOT'
 }
 
 description = "Spring Boot web secure JDBC smoke test"

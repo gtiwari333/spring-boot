@@ -12,8 +12,10 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -23,8 +25,6 @@ import java.util.jar.Manifest;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 
-import javax.tools.ToolProvider;
-
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -33,6 +33,9 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.loader.net.protocol.Handlers;
 import org.springframework.boot.loader.testsupport.TestJar;
 import org.springframework.boot.loader.zip.AssertFileChannelDataBlocksClosed;
+import org.springframework.core.test.tools.SourceFile;
+import org.springframework.core.test.tools.TestCompiler;
+import org.springframework.util.function.ThrowingConsumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -46,17 +49,17 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 @AssertFileChannelDataBlocksClosed
 class JarUrlClassLoaderTests {
 
-	private static final File APP_JAR_FILE = new File("src/test/resources/jars/app.jar").getAbsoluteFile();
-
 	private static final URL APP_JAR;
 	static {
 		try {
-			APP_JAR = new URL("jar:" + APP_JAR_FILE.toURI().toURL() + "!/");
+			APP_JAR = new URL("jar:file:src/test/resources/jars/app.jar!/");
 		}
 		catch (MalformedURLException ex) {
 			throw new IllegalStateException(ex);
 		}
 	}
+
+	private static final Map<String, byte[]> COMPILED_CLASSES = new ConcurrentHashMap<>();
 
 	@TempDir
 	File tempDir;
@@ -306,26 +309,33 @@ class JarUrlClassLoaderTests {
 		return data.toByteArray();
 	}
 
-	private byte[] compileClass(String className) throws Exception {
-		Path sourceDirectory = this.tempDir.toPath().resolve("source");
-		Path outputDirectory = this.tempDir.toPath().resolve("classes");
-		Path sourceFile = sourceDirectory.resolve(className.replace('.', '/') + ".java");
-		Files.createDirectories(sourceFile.getParent());
-		Files.createDirectories(outputDirectory);
+	private byte[] compileClass(String className) {
+		return COMPILED_CLASSES.computeIfAbsent(className, this::compile);
+	}
+
+	private byte[] compile(String className) {
+		AtomicReference<byte[]> result = new AtomicReference<>();
+		TestCompiler.forSystem().compile(sourceFile(className), ThrowingConsumer.of((compiled) -> {
+			try (InputStream inputStream = compiled.getClassLoader()
+				.getResourceAsStream(className.replace('.', '/') + ".class")) {
+				assertThat(inputStream).isNotNull();
+				result.set(inputStream.readAllBytes());
+			}
+		}));
+		return result.get();
+	}
+
+	private SourceFile sourceFile(String className) {
 		int lastDot = className.lastIndexOf('.');
 		String source = (lastDot != -1) ? "package %s; public class %s {}".formatted(className.substring(0, lastDot),
 				className.substring(lastDot + 1)) : "public class %s {}".formatted(className);
-		Files.writeString(sourceFile, source);
-		int result = ToolProvider.getSystemJavaCompiler()
-			.run(null, null, null, "-d", outputDirectory.toString(), sourceFile.toString());
-		assertThat(result).isZero();
-		return Files.readAllBytes(outputDirectory.resolve(className.replace('.', '/') + ".class"));
+		return SourceFile.of(className.replace('.', '/') + ".java", source);
 	}
 
 	@Test
 	void loadClassFromNestedAfterMissingClassInSamePackageDefinesPackageFromManifest() throws Exception {
 		byte[] classData;
-		try (JarFile appJar = new JarFile(APP_JAR_FILE);
+		try (JarFile appJar = new JarFile("src/test/resources/jars/app.jar");
 				InputStream inputStream = appJar.getInputStream(appJar.getEntry("demo/Application.class"))) {
 			classData = inputStream.readAllBytes();
 		}
@@ -374,7 +384,8 @@ class JarUrlClassLoaderTests {
 
 	@Test
 	void loadClassFromNested() throws Exception {
-		File jarFile = createJarWithNestedAppJar(Files.readAllBytes(APP_JAR_FILE.toPath()));
+		File appJarFile = new File("src/test/resources/jars/app.jar");
+		File jarFile = createJarWithNestedAppJar(Files.readAllBytes(appJarFile.toPath()));
 		URL url = JarUrl.create(jarFile, "app.jar");
 		try (JarUrlClassLoader loader = new TestJarUrlClassLoader(url)) {
 			assertThat(loader.loadClass("demo.Application")).isNotNull().hasToString("class demo.Application");
@@ -388,7 +399,8 @@ class JarUrlClassLoaderTests {
 		manifest.getMainAttributes().put(Attributes.Name.IMPLEMENTATION_VERSION, "1.2.3");
 		ByteArrayOutputStream nestedAppJarData = new ByteArrayOutputStream();
 		try (JarOutputStream nestedAppJar = new JarOutputStream(nestedAppJarData, manifest)) {
-			try (JarInputStream sourceAppJar = new JarInputStream(new FileInputStream(APP_JAR_FILE))) {
+			try (JarInputStream sourceAppJar = new JarInputStream(
+					new FileInputStream("src/test/resources/jars/app.jar"))) {
 				ZipEntry entry = sourceAppJar.getNextEntry();
 				while (entry != null) {
 					if (entry.getName().endsWith(".class")) {

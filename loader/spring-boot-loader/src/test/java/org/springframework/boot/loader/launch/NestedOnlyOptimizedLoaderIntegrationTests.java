@@ -49,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
  * Integration tests for {@link LaunchedClassLoader} when all classpath entries are nested
  * jars, which enables the optimized nested-only class loading path.
  *
- * @author gt
+ * @author gtiwari333
  */
 @AssertFileChannelDataBlocksClosed
 class NestedOnlyOptimizedLoaderIntegrationTests {
@@ -80,13 +80,9 @@ class NestedOnlyOptimizedLoaderIntegrationTests {
 	private JarFileArchive archive;
 
 	@BeforeAll
-	static void compileFixtures() {
-		classes = compileClasses();
-	}
-
-	@BeforeAll
-	static void registerHandlers() {
+	static void setup() {
 		Handlers.register();
+		classes = compileClasses();
 	}
 
 	@BeforeEach

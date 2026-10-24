@@ -464,7 +464,31 @@ class JarUrlConnectionTests {
 		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "3.dat"));
 		connection.setUseCaches(false);
 		connection.connect();
-		assertThat(getCached(connection.getJarFileURL())).isNull();
+		JarFile jarFile = connection.getJarFile();
+		try {
+			assertThat(getCached(connection.getJarFileURL())).isNull();
+		}
+		finally {
+			jarFile.close();
+		}
+	}
+
+	@Test
+	void connectWhenNotUsingCachesAndEntryDoesNotExistClosesJarFile() throws Exception {
+		try (JarOutputStream out = new JarOutputStream(new FileOutputStream(this.file))) {
+			out.putNextEntry(new ZipEntry("present.dat"));
+			out.write("present".getBytes(StandardCharsets.UTF_8));
+			out.closeEntry();
+		}
+		URL missingUrl = new URL("jar:file:" + this.file.getAbsolutePath() + "!/missing.dat");
+		JarUrlConnection connection = JarUrlConnection.open(missingUrl);
+		connection.setUseCaches(false);
+		assertThatExceptionOfType(FileNotFoundException.class).isThrownBy(connection::connect)
+			.withMessageContaining("JAR entry missing.dat not found in");
+		JarFile jarFile = (JarFile) ReflectionTestUtils.getField(connection, "jarFile");
+		assertThat(jarFile).isNotNull();
+		assertThatExceptionOfType(IllegalStateException.class).isThrownBy(() -> jarFile.getEntry("present.dat"))
+			.withMessageContaining("closed");
 	}
 
 	@Test
