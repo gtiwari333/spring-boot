@@ -428,6 +428,45 @@ class JarUrlConnectionTests {
 	}
 
 	@Test
+	void connectWhenOptimizationsEnabledAndHasCachedJarWithEntryConnects() throws Exception {
+		JarUrlConnection setupConnection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar"));
+		setupConnection.connect();
+		JarUrlConnection connection = JarUrlConnection.open(JarUrl.create(this.file, "nested.jar", "3.dat"));
+		Optimizations.enable(true);
+		connection.connect();
+		assertThat(connection.getJarEntry()).isNotNull();
+	}
+
+	@Test
+	void connectWhenOptimizationsEnabledAndHasCachedNonNestedJarWithoutEntryThrowsException() throws Exception {
+		try (JarOutputStream out = new JarOutputStream(new FileOutputStream(this.file))) {
+			out.putNextEntry(new ZipEntry("present.dat"));
+			out.write("present".getBytes(StandardCharsets.UTF_8));
+			out.closeEntry();
+		}
+		URL presentUrl = new URL("jar:file:" + this.file.getAbsolutePath() + "!/present.dat");
+		JarUrlConnection setupConnection = JarUrlConnection.open(presentUrl);
+		setupConnection.connect();
+		assertThat(setupConnection.getJarFile()).isInstanceOf(UrlJarFile.class);
+		URL missingUrl = new URL("jar:file:" + this.file.getAbsolutePath() + "!/missing.dat");
+		JarUrlConnection connection = JarUrlConnection.open(missingUrl);
+		Optimizations.enable(true);
+		assertThatExceptionOfType(FileNotFoundException.class).isThrownBy(connection::connect)
+			.isSameAs(JarUrlConnection.FILE_NOT_FOUND_EXCEPTION);
+	}
+
+	@Test
+	void connectWhenCachedUsesCachedJarFile() throws Exception {
+		URL url = JarUrl.create(this.file, "nested.jar", "3.dat");
+		JarUrlConnection firstConnection = JarUrlConnection.open(url);
+		firstConnection.connect();
+		JarUrlConnection secondConnection = JarUrlConnection.open(url);
+		Optimizations.enable(true);
+		secondConnection.connect();
+		assertThat(secondConnection.getJarFile()).isSameAs(firstConnection.getJarFile());
+	}
+
+	@Test
 	void connectWhenHasNoEntryConnects() throws Exception {
 		JarUrlConnection setupConnection = JarUrlConnection.open(this.url);
 		setupConnection.connect();
